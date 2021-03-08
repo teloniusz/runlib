@@ -40,6 +40,7 @@ def ensure_venv(envpath):
             raise RuntimeError(f'Already using interpreter: {interpreter}')
         env = os.environ.copy()
         env['PATH'] = _add_path(env.get('PATH'), op.join(envpath, 'bin'))
+        env['PYTHONPATH'] = _add_path(env.get('PYTHONPATH'), get_config('ROOTDIR'))
         env['VIRTUAL_ENV'] = envpath
         env.pop('PYTHONHOME', None)
 
