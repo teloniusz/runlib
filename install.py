@@ -41,7 +41,7 @@ def do_install(rootdir, dest, subdir, revision, filter_cmd, options):
         f'{rootdir}/{src.strip("/")}/': f'_installed_/{dst.strip("/")}/'
         for src, dst in options['moves'].items()}
 
-    if 'build' in options:
+    if options.get('build'):
         logger.info('Calling build cmd')
         subprocess.run(options['build'], shell=True)
         logger.info('Build cmd done')
