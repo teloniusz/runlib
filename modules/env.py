@@ -4,7 +4,10 @@ import subprocess
 import sys
 import venv
 
-from . import get_config, logger
+from .. import get_config, logger
+
+
+COMMANDS = {'env': 'Virtualenv management'}
 
 
 def _find_or_create_venv(envpath):
@@ -15,7 +18,9 @@ def _find_or_create_venv(envpath):
     if not op.isdir(envpath):
         logger.info('Virtual env not found, creating.')
         venv.create(envpath, with_pip=True)
-        subprocess.check_call([op.join(envpath, 'bin', 'python'), '-m', 'pip', 'install', '-r', op.join(rootdir, 'requirements.txt')])
+        req_file = op.join(rootdir, 'requirements.txt')
+        if op.isfile(req_file):
+            subprocess.check_call([op.join(envpath, 'bin', 'python'), '-m', 'pip', 'install', '-r', req_file])
     return envpath
 
 
@@ -163,7 +168,7 @@ def cmd_env(args):
         subcmd_rm(req_filename, requirements, req_lines, args.pkg.strip())
 
 
-def setup_parser(parser):
+def setup_parser(cmd, parser):
     parser_sub = parser.add_subparsers(dest='command', help='Env command')
     parser_shell = parser_sub.add_parser('shell', help='Enter shell in virtualenv (default)')
     parser_shell.add_argument('arg', nargs='*')

@@ -2,16 +2,25 @@ from io import StringIO
 import os
 from os import path as op
 import re
-from shlex import quote
+from shlex import quote, join as sjoin
 import subprocess
 import sys
 import time
 
-from . import logger, get_config, CONFIG
+from .. import logger, get_config, CONFIG
+
+
+COMMANDS = {
+    'install': 'Install app',
+    'start': 'Start app',
+    'stop': 'Stop app',
+    'restart': 'Restart app',
+    'reload': 'Reload app'
+}
 
 
 SCRIPTS_SUBDIR = 'install_scripts'
-SCRIPTS_DIR = op.join(op.dirname(__file__), SCRIPTS_SUBDIR)
+SCRIPTS_DIR = op.join(op.dirname(op.dirname(__file__)), SCRIPTS_SUBDIR)
 
 
 def get_revision():
@@ -28,6 +37,23 @@ def _do_rsync(src, dst, excl, incl):
     cmd.extend([src, dst])
     logger.info('Running: %s %s', cmd[0], ' '.join(f'"{arg}"' if ' ' in arg else arg for arg in cmd[1:]))
     return subprocess.run(cmd)
+
+
+def _install_config(host=None):
+    config = get_config('INSTALL.')
+    if host:
+        config.update(dict(get_config(f'INSTALL_{host}.')))
+    return config
+
+
+def _get_scripts_loc(rootdir):
+    abs_scripts, abs_root = (op.realpath(SCRIPTS_DIR), op.realpath(rootdir))
+    if not abs_scripts.startswith(abs_root + '/'):
+        logger.warning('Runlib is outside the rootdir (%s), install may fail', abs_root)
+        scripts_loc = f'''"$(python3 -c 'import runlib, os; print(os.path.dirname(runlib.__file__))')/{SCRIPTS_SUBDIR}"'''
+    else:
+        scripts_loc = abs_scripts[len(abs_root)+1:]
+    return scripts_loc
 
 
 def do_install(rootdir, dest, subdir, revision, filter_cmd, options):
@@ -100,14 +126,7 @@ def do_relink(subdir, filter_cmd, stage, commands, install_env=None):
 
 def cmd_install(args):
     rootdir = get_config('ROOTDIR')
-
-    abs_scripts, abs_root = (op.realpath(SCRIPTS_DIR), op.realpath(rootdir))
-    if not abs_scripts.startswith(abs_root + '/'):
-        logger.warning('Runlib is outside the rootdir (%s), install may fail', abs_root)
-        scripts_loc = f'''"$(python3 -c 'import runlib, os; print os.path.dirname(runlib.__file__)')/{SCRIPTS_SUBDIR}"'''
-    else:
-        scripts_loc = abs_scripts[len(abs_root)+1:]
-
+    scripts_loc = _get_scripts_loc(rootdir)
     host, _, subdir = args.dest.rpartition(':')
     subdir = subdir.rstrip('/')
     if host:
@@ -115,9 +134,9 @@ def cmd_install(args):
     else:
         filter_cmd = lambda cmd: ['bash', '-c', cmd]
 
-    config = get_config('INSTALL.')
-    config.update(dict(get_config(f'INSTALL_{host}.')))
+    config = _install_config(host)
     install_env = {var[4:]: value for var, value in config.items() if var.startswith('ENV_')}
+    install_env['INSTALL_HOST'] = host or ''
     install_conf = {
         'build': config.get('BUILD_CMD', get_config('MAIN.BUILD_CMD')) if not args.skip_build else None,
         'clean': args.clean,
@@ -140,15 +159,76 @@ def cmd_install(args):
                   commands=(start_cmd, upgrade_cmd, stop_cmd), install_env=install_env)
 
 
-def setup_parser(parser):
-    parser.add_argument('dest', help='Install destination (scp uri)')
-    parser.add_argument('-b', '--skip-build', action='store_true', default=False, help='Skip build step')
-    parser.add_argument('--relink', action='store', nargs='?', const='current', help='Relink to installed version and restart. Argument is used as stage name (default: current)')
-    parser.add_argument('--stop-cmd', help='Stop command (bash)')
-    parser.add_argument('--upgrade-cmd', help='Upgrade command run before start (bash)')
-    parser.add_argument('--start-cmd', help='Start command (bash)')
-    parser.add_argument('-r', '--revision', help='Revision name (default: git-based/time-based)')
-    parser.add_argument('--replace', action='store_true', default=False, help='Replace revision if exists')
-    parser.add_argument('-c', '--clean', action='store_true', default=False,
-                        help='Clean all revisons but the linked plus one newest')
-    parser.set_defaults(call=cmd_install, use_venv=False)
+def cmd_start(args):
+    scripts_loc = _get_scripts_loc(get_config('ROOTDIR'))
+    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+    start_cmd = config.get('START_CMD', f'. {scripts_loc}/start_cmd.sh').rstrip()
+    if args.arg:
+        start_cmd += f' {sjoin(args.arg)}'
+    logger.info('Starting app: %r', start_cmd)
+    subprocess.run(['bash', '-c', start_cmd])
+
+
+def cmd_stop(args):
+    scripts_loc = _get_scripts_loc(get_config('ROOTDIR'))
+    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+    stop_cmd = config.get('STOP_CMD', f'. {scripts_loc}/stop_cmd.sh')
+    if args:
+        stop_cmd += f' {sjoin(args.arg)}'
+    logger.info('Stopping app: %r', stop_cmd)
+    subprocess.run(['bash', '-c', stop_cmd])
+
+
+def cmd_restart(args):
+    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+    restart_cmd = config.get('RESTART_CMD')
+    if restart_cmd:
+        if args.arg:
+            restart_cmd += f' {sjoin(args.arg)}'
+        logger.info('Restarting app: %r', restart_cmd)
+        subprocess.run(['bash', '-c', restart_cmd])
+    else:
+        logger.debug('No specific restart command, using stop/start')
+        cmd_stop(args)
+        time.sleep(1)
+        cmd_start(args)
+
+
+def cmd_reload(args):
+    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+    reload_cmd = config.get('RELOAD_CMD')
+    if reload_cmd:
+        if args.arg:
+            reload_cmd += f' {sjoin(args.arg)}'
+        logger.info('Reloading app: %r', reload_cmd)
+        subprocess.run(['bash', '-c', reload_cmd])
+    else:
+        logger.debug('No specific reload command, using restart')
+        cmd_restart(args)
+
+
+def setup_parser(cmd, parser):
+    if cmd == 'install':
+        parser.add_argument('dest', help='Install destination (scp uri)')
+        parser.add_argument('-b', '--skip-build', action='store_true', default=False, help='Skip build step')
+        parser.add_argument('--relink', action='store', nargs='?', const='current', help='Relink to installed version and restart. Argument is used as stage name (default: current)')
+        parser.add_argument('--stop-cmd', help='Stop command (bash)')
+        parser.add_argument('--upgrade-cmd', help='Upgrade command run before start (bash)')
+        parser.add_argument('--start-cmd', help='Start command (bash)')
+        parser.add_argument('-r', '--revision', help='Revision name (default: git-based/time-based)')
+        parser.add_argument('--replace', action='store_true', default=False, help='Replace revision if exists')
+        parser.add_argument('-c', '--clean', action='store_true', default=False,
+                            help='Clean all revisons but the linked plus one newest')
+        parser.set_defaults(call=cmd_install, use_venv=False)
+    elif cmd == 'start':
+        parser.add_argument('arg', nargs='*')
+        parser.set_defaults(call=cmd_start, use_venv=False)
+    elif cmd == 'stop':
+        parser.add_argument('arg', nargs='*')
+        parser.set_defaults(call=cmd_stop, use_venv=False)
+    elif cmd == 'restart':
+        parser.add_argument('arg', nargs='*')
+        parser.set_defaults(call=cmd_restart, use_venv=False)
+    elif cmd == 'reload':
+        parser.add_argument('arg', nargs='*')
+        parser.set_defaults(call=cmd_reload, use_venv=False)

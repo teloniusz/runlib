@@ -3,25 +3,8 @@ import importlib
 import logging
 from os import path as op
 
-from . import get_config, logger, env, uwsgi, install
-
-
-APP = None
-
-
-def get_app():
-    global APP
-
-    appmod = get_config('APPMOD')
-    if APP is None:
-        if '.' in appmod:
-            module, _, app = appmod.rpartition('.')
-            APP = getattr(importlib.import_module(module), app)
-    return APP
-
-
-def cmd_run(args):
-    get_app().run(args.host, args.port, debug=args.debug)
+from . import get_config, logger, MODULES
+from .modules import env
 
 
 def get_parser():
@@ -38,15 +21,18 @@ def get_parser():
     subparsers = parser.add_subparsers(dest='cmd', help='command')
     subparsers.required = True
 
-    parser_run = subparsers.add_parser('run', help='Run a test server')
-    parser_run.add_argument('--host', help='Server host')
-    parser_run.add_argument('-p', '--port', help='Server port number')
-    parser_run.add_argument('-d', '--debug', action='store_true', default=False, help='Debug mode')
-    parser_run.set_defaults(call=cmd_run)
-
-    env.setup_parser(subparsers.add_parser('env', help='Virtualenv management'))
-    uwsgi.setup_parser(subparsers.add_parser('uwsgi', help='UWSGI control'))
-    install.setup_parser(subparsers.add_parser('install', help='Install app'))
+    for module in MODULES:
+        try:
+            mod = importlib.import_module(f'..{module}', __name__)
+        except ImportError:
+            try:
+                mod = importlib.import_module(f'..modules.{module}', __name__)
+            except ImportError as exc:
+                logger.error('Error loading module %s: %s', module, str(exc))
+                continue
+        if hasattr(mod, 'COMMANDS') and hasattr(mod, 'setup_parser'):
+            for cmd, help_str in mod.COMMANDS.items():
+                mod.setup_parser(cmd, subparsers.add_parser(cmd, help=help_str))
 
     return parser, subparsers
 

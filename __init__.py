@@ -2,11 +2,13 @@ import configparser
 import logging
 import os
 from os import path as op
+import re
 import sys
 
 
 CONFIG = configparser.ConfigParser()
 CONFIG.optionxform = str
+MODULES = ['env', 'install']
 
 
 def get_config(name, default=''):
@@ -34,17 +36,20 @@ def load_config(filename, init=None):
     return CONFIG
 
 
-def init(parent_module, appmod='app.app', env=None, config='config.ini'):
+def init(parent_module='__main__', env=None, config='config.ini'):
     parent = sys.modules[parent_module]
     initial = {
-        'APPMOD': appmod,
         'APPNAME': getattr(parent, 'APPNAME', ''),
         'CONFIG': config,
         'ROOTDIR': op.realpath(op.dirname(getattr(parent, '__file__', './.'))),
         'VENV.DIR': '.venv',
-        'VENV.REQUIREMENTS': 'requirements.txt'
+        'VENV.REQUIREMENTS': 'requirements.txt',
     }
     config = load_config(op.join(initial['ROOTDIR'], config), initial)
+    MODULES.extend(
+        elem
+        for elem in re.split('[ ,]+', get_config('MODULES'))
+        if elem)
 
     try:
         environ = config['ENVIRONMENT']

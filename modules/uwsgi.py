@@ -3,7 +3,10 @@ from os import path as op
 import subprocess
 import sys
 
-from . import get_config, logger
+from .. import get_config, logger
+
+
+COMMANDS = {'uwsgi': 'UWSGI command'}
 
 
 def cmd_uwsgi(args):
@@ -26,9 +29,11 @@ def cmd_uwsgi(args):
         socket = args.socket or op.join(rootdir, 'var', 'run', 'uwsgi.socket')
         app_module, _, app_var = appmod.rpartition('.')
         call = ['uwsgi', '--logdate', '--manage-script-name',  '--master', '--enable-threads',
-                '--mount', f'/{args.subdir}={app_module}:{app_var}', '--daemonize', logfile, '--pidfile', pidfile,
+                '--daemonize', logfile, '--pidfile', pidfile,
                 '--socket', socket, '--plugin', args.plugin, '--virtualenv', args.venv,
                 '--ini', get_config('CONFIG')]
+        if args.app:
+            call.extend(['--mount', args.app])
         if not socket.startswith('/'):
             call.extend(['--protocol', 'http'])
         res = subprocess.run(call)
@@ -46,12 +51,12 @@ def cmd_uwsgi(args):
             sys.exit(1)
 
 
-def setup_parser(parser):
-    parser_sub = parser.add_subparsers(dest='command', help='UWSGI command')
+def setup_parser(cmd, parser):
+    parser_sub = parser.add_subparsers(dest='command', help='UWSGI operation')
     parser_sub.required = True
     parser_start = parser_sub.add_parser('start', help='Start UWSGI')
     parser_start.add_argument('-s', '--socket', help='Socket path')
-    parser_start.add_argument('-d', '--subdir', default='', help='Subdirectory app mount')
+    parser_start.add_argument('-a', '--app', default='', help='App mount')
     parser_start.add_argument('-p', '--plugin', default='python3', help='UWSGI plugin (default: python3)')
     parser_stop = parser_sub.add_parser('stop', help='Stop UWSGI')
     parser.set_defaults(call=cmd_uwsgi, use_venv=False)
