@@ -18,8 +18,10 @@ def _find_or_create_venv(envpath):
     if not op.isdir(envpath):
         logger.info('Virtual env not found, creating.')
         venv.create(envpath, with_pip=True)
+        subprocess.check_call([op.join(envpath, 'bin', 'python'), '-m', 'pip', 'install', '--upgrade', 'pip'])
         req_file = op.join(rootdir, 'requirements.txt')
         if op.isfile(req_file):
+            subprocess.check_call([op.join(envpath, 'bin', 'python'), '-m', 'pip', 'install', 'wheel'])
             subprocess.check_call([op.join(envpath, 'bin', 'python'), '-m', 'pip', 'install', '-r', req_file])
     return envpath
 
