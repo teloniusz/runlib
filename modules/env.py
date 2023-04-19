@@ -97,7 +97,7 @@ def subcmd_freeze(req_filename, requirements, req_lines):
                 req_file.write(line)
 
 
-def subcmd_add(req_filename, requirements, req_lines, pkg):
+def subcmd_add(req_filename, requirements, req_lines, pkg, update=False):
     name = pkg.partition('==')[0]
 
     added = True
@@ -110,16 +110,19 @@ def subcmd_add(req_filename, requirements, req_lines, pkg):
                 req_lines[idx] = (line.replace(prev_entry, pkg), lname, lversion)
                 added = False
             break
-    subprocess.check_call(['python', '-m', 'pip', 'install', '--upgrade', pkg])
+    if not update:
+        subprocess.check_call(['python', '-m', 'pip', 'install', '--upgrade', pkg])
     with open(req_filename, 'w') as req_file:
         if idx > 0:
             req_file.write(''.join(line for line, _, _ in req_lines[:idx]))
         if added:
             req_file.write(f'{pkg}\n')
         req_file.write(''.join(line for line, _, _ in req_lines[idx:]))
+    if update:
+        os.execlp('python', 'python', '-m', 'pip', 'install', '-r', req_filename)
 
 
-def subcmd_rm(req_filename, requirements, req_lines, pkg):
+def subcmd_rm(req_filename, requirements, req_lines, pkg, update=False):
     if pkg.lower() not in requirements:
         logger.warning('Package not found: %s', pkg)
     else:
@@ -129,6 +132,8 @@ def subcmd_rm(req_filename, requirements, req_lines, pkg):
                 line
                 for line, name, _ in req_lines
                 if name.lower() != pkg.lower()))
+    if update:
+        os.execlp('python', 'python', '-m', 'pip', 'install', '-r', req_filename)
 
 
 def cmd_env(args):
@@ -165,9 +170,9 @@ def cmd_env(args):
     elif command == 'freeze':
         subcmd_freeze(req_filename, requirements, req_lines)
     elif command == 'add':
-        subcmd_add(req_filename, requirements, req_lines, args.pkg.strip())
+        subcmd_add(req_filename, requirements, req_lines, args.pkg.strip(), args.update)
     elif command == 'rm':
-        subcmd_rm(req_filename, requirements, req_lines, args.pkg.strip())
+        subcmd_rm(req_filename, requirements, req_lines, args.pkg.strip(), args.update)
 
 
 def setup_parser(cmd, parser):
@@ -176,11 +181,13 @@ def setup_parser(cmd, parser):
     parser_shell.add_argument('arg', nargs='*')
     parser_run = parser_sub.add_parser('run', help='Run a command in virtualenv')
     parser_run.add_argument('arg', nargs='+')
-    parser_update = parser_sub.add_parser('update', help='Update virtualenv')
+    parser_sub.add_parser('update', help='Update virtualenv')
     parser_add = parser_sub.add_parser('add', help='Add a package')
     parser_add.add_argument('pkg')
+    parser_add.add_argument('--update', '-u', action='store_true', help='Update packages after adding')
     parser_rm = parser_sub.add_parser('rm', help='Remove a package')
     parser_rm.add_argument('pkg')
-    parser_list = parser_sub.add_parser('list', help='List packages')
-    parser_freeze = parser_sub.add_parser('freeze', help='Freeze existing requirements')
+    parser_rm.add_argument('--update', '-u', action='store_true', help='Update packages after removing')
+    parser_sub.add_parser('list', help='List packages')
+    parser_sub.add_parser('freeze', help='Freeze existing requirements')
     parser.set_defaults(command='shell', call=cmd_env)
