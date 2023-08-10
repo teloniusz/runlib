@@ -2,7 +2,7 @@ from io import StringIO
 import os
 from os import path as op
 import re
-from shlex import quote, join as sjoin
+from shlex import quote
 import subprocess
 import sys
 import time
@@ -21,6 +21,11 @@ COMMANDS = {
 
 SCRIPTS_SUBDIR = 'install_scripts'
 SCRIPTS_DIR = op.join(op.dirname(op.dirname(__file__)), SCRIPTS_SUBDIR)
+
+
+def sjoin(split_command):
+    """Return a shell-escaped string from *split_command*."""
+    return ' '.join(quote(arg) for arg in split_command)
 
 
 def get_revision():
