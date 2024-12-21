@@ -2,20 +2,21 @@ import argparse
 import importlib
 import logging
 from os import path as op
+from typing import Any, Callable
 
-from . import get_config, logger, MODULES
+from . import get_config_str, logger, MODULES
 from .modules import env
 
 
 def get_parser():
-    rootdir = get_config('ROOTDIR')
+    rootdir = get_config_str('ROOTDIR')
 
-    parser = argparse.ArgumentParser(description=get_config('APPNAME'))
+    parser = argparse.ArgumentParser(description=get_config_str('APPNAME'))
     parser.set_defaults(use_venv=True)
     parser.add_argument('-l', '--loglevel',
                         choices=('ERROR', 'WARNING', 'NOTICE', 'INFO', 'DEBUG'),
                         default='INFO', help='Logging level')
-    parser.add_argument('--venv', default=op.join(rootdir, get_config('VENV.DIR')),
+    parser.add_argument('--venv', default=op.join(rootdir, get_config_str('VENV.DIR')),
                         help='alternative virtualenv location')
 
     subparsers = parser.add_subparsers(dest='cmd', help='command')
@@ -37,8 +38,8 @@ def get_parser():
     return parser, subparsers
 
 
-def main(parser=None, before=None):
-    def show_arg(arg, val):
+def main(parser: argparse.ArgumentParser | None = None, before: Callable[[argparse.Namespace], Any] | None = None):
+    def show_arg(arg: str, val: str):
         if arg == 'command':
             return val
         elif arg == 'arg':

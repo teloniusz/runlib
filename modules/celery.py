@@ -1,16 +1,19 @@
 from os import path as op
 import subprocess
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import argparse
 
-from .. import get_config
+from .. import get_config_str
 
 
 COMMANDS = {'celery': 'Celery ops'}
 
 
-def cmd_celery(args):
-    here = get_config('ROOTDIR')
-    objname = get_config('CELERY.OBJECT', 'app.celery')
-    use_beat = get_config('CELERY.BEAT', 'y').strip().lower() in ('1', 'y', 'yes', 'true')
+def cmd_celery(args: 'argparse.Namespace'):
+    here = get_config_str('ROOTDIR')
+    objname = get_config_str('CELERY.OBJECT', 'app.celery')
+    use_beat = get_config_str('CELERY.BEAT', 'y').strip().lower() in ('1', 'y', 'yes', 'true')
 
     piddir = op.join(here, 'var', 'run')
     logdir = op.join(here, 'var', 'log')
@@ -33,6 +36,6 @@ def cmd_celery(args):
             f'--pidfile={pidfiles["worker"]}', f'--logfile={logfiles["worker"]}'])
 
 
-def setup_parser(cmd, parser):
+def setup_parser(cmd: str, parser: 'argparse.ArgumentParser'):
     parser.add_argument('operation', choices=('start', 'stop'))
     parser.set_defaults(call=cmd_celery)

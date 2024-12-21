@@ -2,16 +2,20 @@ import os
 from os import path as op
 import subprocess
 import sys
+from typing import TYPE_CHECKING
 import venv
+if TYPE_CHECKING:
+    import argparse
 
-from .. import get_config, logger
+
+from .. import get_config_str, logger
 
 
 COMMANDS = {'env': 'Virtualenv management'}
 
 
-def _find_or_create_venv(envpath):
-    rootdir = get_config('ROOTDIR')
+def _find_or_create_venv(envpath: str):
+    rootdir = get_config_str('ROOTDIR')
 
     if not envpath.startswith('/'):
         envpath = op.join(rootdir, envpath)
@@ -26,10 +30,10 @@ def _find_or_create_venv(envpath):
     return envpath
 
 
-def _add_path(var, *args):
+def _add_path(var: str | None, *args: str):
     paths = list(args) + var.split(':') if var else args
-    existing = set()
-    res = []
+    existing = set[str]()
+    res: list[str] = []
     for path in paths:
         if path not in existing:
             res.append(path)
@@ -37,7 +41,7 @@ def _add_path(var, *args):
     return ':'.join(res)
 
 
-def ensure_venv(envpath):
+def ensure_venv(envpath: str):
     current_env = os.environ.get('VIRTUAL_ENV', '')
     if not current_env or current_env != envpath:
         logger.info('Not in venv, entering.')
@@ -47,7 +51,7 @@ def ensure_venv(envpath):
             raise RuntimeError(f'Already using interpreter: {interpreter}')
         env = os.environ.copy()
         env['PATH'] = _add_path(env.get('PATH'), op.join(envpath, 'bin'))
-        env['PYTHONPATH'] = _add_path(env.get('PYTHONPATH'), get_config('ROOTDIR'))
+        env['PYTHONPATH'] = _add_path(env.get('PYTHONPATH'), get_config_str('ROOTDIR'))
         env['VIRTUAL_ENV'] = envpath
         env.pop('PYTHONHOME', None)
 
@@ -55,8 +59,8 @@ def ensure_venv(envpath):
         os.execle(interpreter, 'python', *sys.argv, env)
 
 
-def shell(*args):
-    rootdir = get_config('ROOTDIR')
+def shell(*args: str):
+    rootdir = get_config_str('ROOTDIR')
 
     initscript = f'''. /etc/bash.bashrc;. ~/.bashrc
 [[ -f {rootdir}/.bashrc.venv ]] && . {rootdir}/.bashrc.venv || PS1="[venv] $PS1"
@@ -77,7 +81,7 @@ export PATH={os.environ["PATH"]}\n'''
         os.close(wsync)
 
 
-def subcmd_freeze(req_filename, requirements, req_lines):
+def subcmd_freeze(req_filename: str, requirements: dict[str, tuple[str, str]], req_lines: list[tuple[str, str, str]]):
     for line in subprocess.check_output(['pip', 'freeze']).decode('utf-8').split('\n'):
         name, _, version = line.strip().partition('==')
         lower = name.lower()
@@ -97,7 +101,7 @@ def subcmd_freeze(req_filename, requirements, req_lines):
                 req_file.write(line)
 
 
-def subcmd_add(req_filename, requirements, req_lines, pkg, update=False):
+def subcmd_add(req_filename: str, requirements: dict[str, tuple[str, str]], req_lines: list[tuple[str, str, str]], pkg: str, update: bool = False):
     name = pkg.partition('==')[0]
 
     added = True
@@ -122,7 +126,7 @@ def subcmd_add(req_filename, requirements, req_lines, pkg, update=False):
         os.execlp('python', 'python', '-m', 'pip', 'install', '-r', req_filename)
 
 
-def subcmd_rm(req_filename, requirements, req_lines, pkg, update=False):
+def subcmd_rm(req_filename: str, requirements: dict[str, tuple[str, str]], req_lines: list[tuple[str, str, str]], pkg: str, update: bool = False):
     if pkg.lower() not in requirements:
         logger.warning('Package not found: %s', pkg)
     else:
@@ -136,12 +140,12 @@ def subcmd_rm(req_filename, requirements, req_lines, pkg, update=False):
         os.execlp('python', 'python', '-m', 'pip', 'install', '-r', req_filename)
 
 
-def cmd_env(args):
-    rootdir = get_config('ROOTDIR')
+def cmd_env(args: 'argparse.Namespace'):
+    rootdir = get_config_str('ROOTDIR')
 
-    req_filename = op.join(rootdir, get_config('VENV.REQUIREMENTS', 'requirements.txt'))
-    req_lines = []
-    requirements = {}
+    req_filename = op.join(rootdir, get_config_str('VENV.REQUIREMENTS', 'requirements.txt'))
+    req_lines: list[tuple[str, str, str]] = []
+    requirements: dict[str, tuple[str, str]] = {}
     try:
         with open(req_filename) as req_file:
             for line in req_file:
@@ -175,7 +179,7 @@ def cmd_env(args):
         subcmd_rm(req_filename, requirements, req_lines, args.pkg.strip(), args.update)
 
 
-def setup_parser(cmd, parser):
+def setup_parser(cmd: str, parser: 'argparse.ArgumentParser'):
     parser_sub = parser.add_subparsers(dest='command', help='Env command')
     parser_shell = parser_sub.add_parser('shell', help='Enter shell in virtualenv (default)')
     parser_shell.add_argument('arg', nargs='*')

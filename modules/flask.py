@@ -1,21 +1,24 @@
 import logging
 from os import path as op
 import sys
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import argparse
 
-from .. import logger, get_config
+from .. import logger, get_config_str
 
 
 COMMANDS = {'flask': 'Flask CLI utility', 'run': 'Flask dev server'}
 
 
-def cmd_flask(args):
+def cmd_flask(args: list[str]):
     import flask
 
-    sys.argv = [op.join(get_config('ROOTDIR'), get_config('VENV.DIR'), 'bin', 'flask')] + args
+    sys.argv = [op.join(get_config_str('ROOTDIR'), get_config_str('VENV.DIR'), 'bin', 'flask')] + args
     flask.cli.main()
 
 
-def cmd_run(args):
+def cmd_run(args: 'argparse.Namespace'):
     if args.debug:
         logger.setLevel(logging.DEBUG)
     flask_args = ['run']
@@ -26,10 +29,13 @@ def cmd_run(args):
     cmd_flask(flask_args)
 
 
-def setup_parser(cmd, parser):
+def setup_parser(cmd: str, parser: 'argparse.ArgumentParser'):
     if cmd == 'flask':
+        def dfl(args: 'argparse.Namespace'):
+            return cmd_flask(args.arg)
+
         parser.add_argument('arg', nargs='*')
-        parser.set_defaults(call=lambda args: cmd_flask(args.arg))
+        parser.set_defaults(call=dfl)
     elif cmd == 'run':
         parser.add_argument('--host', help='Server host')
         parser.add_argument('-p', '--port', help='Server port number')

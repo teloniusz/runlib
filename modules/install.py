@@ -4,10 +4,12 @@ from os import path as op
 import re
 from shlex import quote
 import subprocess
-import sys
 import time
+from typing import Any, Callable, TYPE_CHECKING
+if TYPE_CHECKING:
+    import argparse
 
-from .. import logger, get_config, CONFIG
+from .. import logger, get_config_dict, get_config_str, CONFIG
 
 
 COMMANDS = {
@@ -23,7 +25,7 @@ SCRIPTS_SUBDIR = 'install_scripts'
 SCRIPTS_DIR = op.join(op.dirname(op.dirname(__file__)), SCRIPTS_SUBDIR)
 
 
-def sjoin(split_command):
+def sjoin(split_command: list[str]):
     """Return a shell-escaped string from *split_command*."""
     return ' '.join(quote(arg) for arg in split_command)
 
@@ -35,7 +37,7 @@ def get_revision():
     return time.strftime('%Y%m$d')
 
 
-def _do_rsync(src, dst, excl, incl):
+def _do_rsync(src: str, dst: str, excl: list[str], incl: list[str]):
     cmd = ['rsync', '-a', '--update', '--delete', '--filter=:- .gitignore']
     cmd.extend(f'--exclude={elem}' for elem in excl if elem)
     cmd.extend(f'--include={elem}' for elem in incl if elem)
@@ -44,14 +46,14 @@ def _do_rsync(src, dst, excl, incl):
     return subprocess.run(cmd)
 
 
-def _install_config(host=None):
-    config = get_config('INSTALL.')
+def _install_config(host: str | None = None):
+    config = get_config_dict('INSTALL.')
     if host:
-        config.update(dict(get_config(f'INSTALL_{host}.')))
+        config.update(dict(get_config_dict(f'INSTALL_{host}.')))
     return config
 
 
-def _get_scripts_loc(rootdir):
+def _get_scripts_loc(rootdir: str):
     abs_scripts, abs_root = (op.realpath(SCRIPTS_DIR), op.realpath(rootdir))
     if not abs_scripts.startswith(abs_root + '/'):
         logger.warning('Runlib is outside the rootdir (%s), install may fail', abs_root)
@@ -61,12 +63,12 @@ def _get_scripts_loc(rootdir):
     return scripts_loc
 
 
-def do_install(rootdir, dest, subdir, revision, filter_cmd, options):
-    venv_dir = get_config('VENV.DIR')
+def do_install(rootdir: str, dest: str, subdir: str, revision: str, filter_cmd: Callable[[str], list[str]], options: dict[str, Any]):
+    venv_dir = get_config_str('VENV.DIR')
     rootdir, dest = rootdir.rstrip('/'), dest.rstrip('/')
     excludes = [venv_dir, '.git']
     excludes.extend(options['excludes'])
-    includes = []
+    includes: list[str] = []
     includes.extend(options['includes'])
     moves = {
         f'{rootdir}/{src.strip("/")}/': f'_installed_/{dst.strip("/")}/'
@@ -91,10 +93,16 @@ def do_install(rootdir, dest, subdir, revision, filter_cmd, options):
         _do_rsync(src, op.join(dest, dst), excludes, includes + [src])
 
 
-def do_relink(subdir, filter_cmd, stage, commands, install_env=None):
+def do_relink(
+    subdir: str,
+    filter_cmd: Callable[[str], list[str]],
+    stage: str,
+    commands: tuple[str, str, str],
+    install_env: dict[str, str] | None = None,
+):
     start_cmd, upgrade_cmd, stop_cmd = commands
-    venv_dir = get_config('VENV.DIR')
-    req_file = get_config('VENV.REQUIREMENTS')
+    venv_dir = get_config_str('VENV.DIR')
+    req_file = get_config_str('VENV.REQUIREMENTS')
     logger.info('Relinking installed app: %s to %s', subdir, stage)
     with open(op.join(SCRIPTS_DIR, 'prepare.sh')) as prepare_script:
         prepare_cmd = prepare_script.read().format(venv_dir=quote(venv_dir), req_file=quote(req_file))
@@ -129,27 +137,27 @@ def do_relink(subdir, filter_cmd, stage, commands, install_env=None):
     subprocess.run(filter_cmd(cmd))
 
 
-def cmd_install(args):
-    rootdir = get_config('ROOTDIR')
+def cmd_install(args: 'argparse.Namespace'):
+    rootdir = get_config_str('ROOTDIR')
     scripts_loc = _get_scripts_loc(rootdir)
     host, _, subdir = args.dest.rpartition(':')
     subdir = subdir.rstrip('/')
     if host:
-        filter_cmd = lambda cmd: ['ssh', host, 'bash', '-c', quote(cmd)]
+        filter_cmd: Callable[[str], list[str]] = lambda cmd: ['ssh', host, 'bash', '-c', quote(cmd)]
     else:
-        filter_cmd = lambda cmd: ['bash', '-c', cmd]
+        filter_cmd: Callable[[str], list[str]] = lambda cmd: ['bash', '-c', cmd]
 
     config = _install_config(host)
     install_env = {var[4:]: value for var, value in config.items() if var.startswith('ENV_')}
     install_env['INSTALL_HOST'] = host or ''
     install_conf = {
-        'build': config.get('BUILD_CMD', get_config('MAIN.BUILD_CMD')) if not args.skip_build else None,
+        'build': config.get('BUILD_CMD', get_config_str('MAIN.BUILD_CMD')) if not args.skip_build else None,
         'clean': args.clean,
         'replace': args.replace,
-        'excludes': re.split('\s+', config.get('EXCLUDE', '')),
-        'includes': re.split('\s+', config.get('INCLUDE', '')),
+        'excludes': re.split(r'\s+', config.get('EXCLUDE', '')),
+        'includes': re.split(r'\s+', config.get('INCLUDE', '')),
         'moves': {src.strip(): dst.strip()
-                  for elem in re.split('\n\s*', config.get('MOVE', ''))
+                  for elem in re.split(r'\n\s*', config.get('MOVE', ''))
                   for src, _, dst in (elem.partition(':'),) if src}
     }
     os.chdir(rootdir)
@@ -164,9 +172,9 @@ def cmd_install(args):
                   commands=(start_cmd, upgrade_cmd, stop_cmd), install_env=install_env)
 
 
-def cmd_start(args):
-    scripts_loc = _get_scripts_loc(get_config('ROOTDIR'))
-    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+def cmd_start(args: 'argparse.Namespace'):
+    scripts_loc = _get_scripts_loc(get_config_str('ROOTDIR'))
+    config = _install_config(get_config_str('ENVIRONMENT.INSTALL_HOST'))
     start_cmd = config.get('START_CMD', f'. {scripts_loc}/start_cmd.sh').rstrip()
     if args.arg:
         start_cmd += f' {sjoin(args.arg)}'
@@ -174,9 +182,9 @@ def cmd_start(args):
     subprocess.run(['bash', '-c', start_cmd])
 
 
-def cmd_stop(args):
-    scripts_loc = _get_scripts_loc(get_config('ROOTDIR'))
-    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+def cmd_stop(args: 'argparse.Namespace'):
+    scripts_loc = _get_scripts_loc(get_config_str('ROOTDIR'))
+    config = _install_config(get_config_str('ENVIRONMENT.INSTALL_HOST'))
     stop_cmd = config.get('STOP_CMD', f'. {scripts_loc}/stop_cmd.sh')
     if args:
         stop_cmd += f' {sjoin(args.arg)}'
@@ -184,8 +192,8 @@ def cmd_stop(args):
     subprocess.run(['bash', '-c', stop_cmd])
 
 
-def cmd_restart(args):
-    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+def cmd_restart(args: 'argparse.Namespace'):
+    config = _install_config(get_config_str('ENVIRONMENT.INSTALL_HOST'))
     restart_cmd = config.get('RESTART_CMD')
     if restart_cmd:
         if args.arg:
@@ -199,8 +207,8 @@ def cmd_restart(args):
         cmd_start(args)
 
 
-def cmd_reload(args):
-    config = _install_config(get_config('ENVIRONMENT.INSTALL_HOST'))
+def cmd_reload(args: 'argparse.Namespace'):
+    config = _install_config(get_config_str('ENVIRONMENT.INSTALL_HOST'))
     reload_cmd = config.get('RELOAD_CMD')
     if reload_cmd:
         if args.arg:
@@ -212,7 +220,7 @@ def cmd_reload(args):
         cmd_restart(args)
 
 
-def setup_parser(cmd, parser):
+def setup_parser(cmd: str, parser: 'argparse.ArgumentParser'):
     if cmd == 'install':
         parser.add_argument('dest', help='Install destination (scp uri)')
         parser.add_argument('-b', '--skip-build', action='store_true', default=False, help='Skip build step')
